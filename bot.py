@@ -9,6 +9,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
+# 🔒 هذا رقمك (جاهز)
+ALLOWED_USER_ID = 799529225
+
 # Flask (تشغيل 24/7)
 app = Flask(__name__)
 
@@ -23,7 +26,7 @@ def run_web():
 def keep_alive():
     threading.Thread(target=run_web, daemon=True).start()
 
-# فك الروابط المختصرة
+# فك الروابط
 def resolve_url(url):
     try:
         return requests.get(url, allow_redirects=True).url
@@ -39,12 +42,19 @@ def cleanup():
             except:
                 pass
 
-# /start (اختياري)
+# /start (خاص فيك)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # صامت
+    if update.effective_user.id != ALLOWED_USER_ID:
+        return
 
 # استقبال الرابط
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # 🔒 حماية
+    if user_id != ALLOWED_USER_ID:
+        return
+
     url = update.message.text.strip()
 
     if not url.startswith("http"):
@@ -75,7 +85,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.rename(filename, "video.mp4")
             filename = "video.mp4"
 
-        # إرسال الفيديو مباشرة (صامت)
+        # إرسال الفيديو (صامت)
         try:
             with open(filename, "rb") as f:
                 await update.message.reply_video(f)
@@ -86,9 +96,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(filename)
 
     except:
-        pass  # صامت بالكامل
+        pass  # صامت
 
-# تشغيل البوت
+# تشغيل
 def main():
     bot = Application.builder().token(TOKEN).build()
 
