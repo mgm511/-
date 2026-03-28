@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-# Flask (لتشغيله 24 ساعة)
+# Flask (تشغيل 24/7)
 app = Flask(__name__)
 
 @app.route("/")
@@ -30,7 +30,7 @@ def resolve_url(url):
     except:
         return url
 
-# حذف الملفات القديمة
+# تنظيف الملفات
 def cleanup():
     for f in os.listdir("."):
         if f.startswith("video."):
@@ -39,21 +39,18 @@ def cleanup():
             except:
                 pass
 
-# /start
+# /start (اختياري)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 أرسل رابط الفيديو وبحمّله لك بأفضل جودة")
+    pass  # صامت
 
 # استقبال الرابط
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
     if not url.startswith("http"):
-        await update.message.reply_text("❌ أرسل رابط صحيح")
         return
 
     url = resolve_url(url)
-
-    await update.message.reply_text("⏳ جاري التحميل...")
 
     cleanup()
 
@@ -74,22 +71,24 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
-        # تحويل إلى mp4 إذا مو mp4
         if not filename.endswith(".mp4"):
             os.rename(filename, "video.mp4")
             filename = "video.mp4"
 
-        await update.message.reply_text("📤 جاري الإرسال...")
-
-        with open(filename, "rb") as f:
-            await update.message.reply_video(f)
+        # إرسال الفيديو مباشرة (صامت)
+        try:
+            with open(filename, "rb") as f:
+                await update.message.reply_video(f)
+        except:
+            with open(filename, "rb") as f:
+                await update.message.reply_document(f)
 
         os.remove(filename)
 
-    except Exception as e:
-        await update.message.reply_text(f"❌ فشل التحميل:\n{str(e)[:200]}")
+    except:
+        pass  # صامت بالكامل
 
-# تشغيل
+# تشغيل البوت
 def main():
     bot = Application.builder().token(TOKEN).build()
 
