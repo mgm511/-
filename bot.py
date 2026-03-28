@@ -2,17 +2,17 @@ import os
 import threading
 import requests
 import yt_dlp
+import hashlib
+import subprocess
+import asyncio
 
 from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-
-# 🔒 هذا رقمك (جاهز)
 ALLOWED_USER_ID = 799529225
 
-# Flask (تشغيل 24/7)
 app = Flask(__name__)
 
 @app.route("/")
@@ -26,79 +26,105 @@ def run_web():
 def keep_alive():
     threading.Thread(target=run_web, daemon=True).start()
 
-# فك الروابط
 def resolve_url(url):
     try:
-        return requests.get(url, allow_redirects=True).url
+        return requests.get(url, allow_redirects=True, timeout=5).url
     except:
         return url
 
-# تنظيف الملفات
+# 🧠 كاش ذكي
+def cache_name(url):
+    return hashlib.md5(url.encode()).hexdigest() + ".mp4"
+
+# 🎬 ضغط
+def compress(input_file, output_file):
+    try:
+        subprocess.run([
+            "ffmpeg", "-i", input_file,
+            "-vcodec", "libx264", "-crf", "28",
+            "-preset", "ultrafast",
+            "-acodec", "aac",
+            output_file
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except:
+        return False
+
+# 🧹 تنظيف
 def cleanup():
     for f in os.listdir("."):
-        if f.startswith("video."):
+        if f.endswith(".mp4") or f.startswith("video"):
             try:
                 os.remove(f)
             except:
                 pass
 
-# /start (خاص فيك)
+# ⚡ تحميل غير متزامن
+async def download(url, filename):
+    loop = asyncio.get_event_loop()
+    def run():
+        ydl_opts = {
+            "format": "bv*[height<=1080]+ba/b[height<=1080]",
+            "outtmpl": filename,
+            "merge_output_format": "mp4",
+            "quiet": True,
+            "noplaylist": True,
+            "concurrent_fragment_downloads": 8,
+            "retries": 2,
+            "fragment_retries": 2,
+            "nocheckcertificate": True,
+            "geo_bypass": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+    await loop.run_in_executor(None, run)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
         return
 
-# استقبال الرابط
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    # 🔒 حماية
-    if user_id != ALLOWED_USER_ID:
+    if update.effective_user.id != ALLOWED_USER_ID:
         return
 
     url = update.message.text.strip()
-
     if not url.startswith("http"):
         return
 
     url = resolve_url(url)
+    file = cache_name(url)
 
-    cleanup()
+    # ⚡ كاش
+    if os.path.exists(file):
+        with open(file, "rb") as f:
+            await update.message.reply_video(f)
+        return
 
-    ydl_opts = {
-        "format": "bestvideo+bestaudio/best",
-        "outtmpl": "video.%(ext)s",
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "noplaylist": True,
-        "retries": 5,
-        "fragment_retries": 5,
-        "nocheckcertificate": True,
-        "geo_bypass": True,
-    }
+    temp_file = "video.mp4"
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+        await download(url, temp_file)
 
-        if not filename.endswith(".mp4"):
-            os.rename(filename, "video.mp4")
-            filename = "video.mp4"
+        # 🎬 ضغط إذا كبير
+        if os.path.getsize(temp_file) > 45 * 1024 * 1024:
+            compressed = "c.mp4"
+            if compress(temp_file, compressed):
+                os.remove(temp_file)
+                temp_file = compressed
 
-        # إرسال الفيديو (صامت)
+        os.rename(temp_file, file)
+
         try:
-            with open(filename, "rb") as f:
+            with open(file, "rb") as f:
                 await update.message.reply_video(f)
         except:
-            with open(filename, "rb") as f:
+            with open(file, "rb") as f:
                 await update.message.reply_document(f)
 
-        os.remove(filename)
-
     except:
-        pass  # صامت
+        pass
 
-# تشغيل
 def main():
     bot = Application.builder().token(TOKEN).build()
 
