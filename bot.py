@@ -3,7 +3,6 @@ import threading
 import requests
 import yt_dlp
 import hashlib
-import subprocess
 import asyncio
 
 from flask import Flask
@@ -32,23 +31,9 @@ def resolve_url(url):
     except:
         return url
 
-# 🧠 كاش ذكي
+# 🧠 كاش
 def cache_name(url):
     return hashlib.md5(url.encode()).hexdigest() + ".mp4"
-
-# 🎬 ضغط
-def compress(input_file, output_file):
-    try:
-        subprocess.run([
-            "ffmpeg", "-i", input_file,
-            "-vcodec", "libx264", "-crf", "28",
-            "-preset", "ultrafast",
-            "-acodec", "aac",
-            output_file
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except:
-        return False
 
 # 🧹 تنظيف
 def cleanup():
@@ -59,30 +44,32 @@ def cleanup():
             except:
                 pass
 
-# ⚡ تحميل غير متزامن
+# ⚡ تحميل
 async def download(url, filename):
     loop = asyncio.get_event_loop()
+
     def run():
         ydl_opts = {
-            "format": "bv*[height<=1080]+ba/b[height<=1080]",
+            "format": "bv*+ba/b",  # أعلى جودة بدون تحديد
             "outtmpl": filename,
             "merge_output_format": "mp4",
             "quiet": True,
             "noplaylist": True,
             "concurrent_fragment_downloads": 8,
-            "retries": 2,
-            "fragment_retries": 2,
+            "retries": 3,
+            "fragment_retries": 3,
             "nocheckcertificate": True,
             "geo_bypass": True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-    await loop.run_in_executor(None, run)
+    return await loop.run_in_executor(None, run)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
         return
+    await update.message.reply_text("🔥 ارسل الرابط وأنا أحمله لك بدون ضغط وبأعلى جودة")
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
@@ -92,13 +79,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not url.startswith("http"):
         return
 
+    await update.message.reply_text("⏳ جاري التحميل...")
+
     url = resolve_url(url)
     file = cache_name(url)
 
     # ⚡ كاش
     if os.path.exists(file):
         with open(file, "rb") as f:
-            await update.message.reply_video(f)
+            await update.message.reply_document(f)
         return
 
     temp_file = "video.mp4"
@@ -106,24 +95,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await download(url, temp_file)
 
-        # 🎬 ضغط إذا كبير
-        if os.path.getsize(temp_file) > 45 * 1024 * 1024:
-            compressed = "c.mp4"
-            if compress(temp_file, compressed):
-                os.remove(temp_file)
-                temp_file = compressed
-
         os.rename(temp_file, file)
 
-        try:
-            with open(file, "rb") as f:
-                await update.message.reply_video(f)
-        except:
-            with open(file, "rb") as f:
-                await update.message.reply_document(f)
+        # 🚀 إرسال بدون ضغط
+        with open(file, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename="video.mp4"
+            )
 
-    except:
-        pass
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ: {e}")
 
 def main():
     bot = Application.builder().token(TOKEN).build()
