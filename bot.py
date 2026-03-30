@@ -12,6 +12,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = 799529225
 
+# 🌐 Flask
 app = Flask(__name__)
 
 @app.route("/")
@@ -25,54 +26,51 @@ def run_web():
 def keep_alive():
     threading.Thread(target=run_web, daemon=True).start()
 
+# 🔗 حل الروابط المختصرة
 def resolve_url(url):
     try:
-        return requests.get(url, allow_redirects=True, timeout=5).url
+        return requests.get(url, allow_redirects=True, timeout=10).url
     except:
         return url
 
-# 🧠 كاش
+# 🧠 اسم كاش
 def cache_name(url):
     return hashlib.md5(url.encode()).hexdigest() + ".mp4"
 
-# 🧹 تنظيف
-def cleanup():
-    for f in os.listdir("."):
-        if f.endswith(".mp4") or f.startswith("video"):
-            try:
-                os.remove(f)
-            except:
-                pass
-
 # ⚡ تحميل
 async def download(url, filename):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def run():
         ydl_opts = {
-            "format": "bv*+ba/b",  # أعلى جودة بدون تحديد
+            "format": "bv*+ba/b",
             "outtmpl": filename,
             "merge_output_format": "mp4",
             "quiet": True,
             "noplaylist": True,
             "concurrent_fragment_downloads": 8,
-            "retries": 3,
-            "fragment_retries": 3,
+            "retries": 5,
+            "fragment_retries": 5,
             "nocheckcertificate": True,
             "geo_bypass": True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-    return await loop.run_in_executor(None, run)
+    await loop.run_in_executor(None, run)
 
+# 🚀 أمر البداية
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
         return
-    await update.message.reply_text("🔥 ارسل الرابط وأنا أحمله لك بدون ضغط وبأعلى جودة")
+    await update.message.reply_text("🔥 ارسل الرابط وأنا أحمله لك بأعلى جودة")
 
+# 📥 استقبال الروابط
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
+        return
+
+    if not update.message or not update.message.text:
         return
 
     url = update.message.text.strip()
@@ -83,38 +81,49 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = resolve_url(url)
     file = cache_name(url)
-
-    # ⚡ كاش
-    if os.path.exists(file):
-        with open(file, "rb") as f:
-            await update.message.reply_document(f)
-        return
-
-    temp_file = "video.mp4"
+    temp_file = f"temp_{file}"
 
     try:
+        # ⚡ لو موجود بالكاش
+        if os.path.exists(file):
+            with open(file, "rb") as f:
+                await update.message.reply_document(f, filename="video.mp4")
+            return
+
+        # تحميل
         await download(url, temp_file)
 
-        os.rename(temp_file, file)
+        # إعادة تسمية
+        if os.path.exists(temp_file):
+            os.rename(temp_file, file)
 
-        # 🚀 إرسال بدون ضغط
+        # إرسال
         with open(file, "rb") as f:
-            await update.message.reply_document(
-                document=f,
-                filename="video.mp4"
-            )
+            await update.message.reply_document(f, filename="video.mp4")
 
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {e}")
 
-def main():
-    bot = Application.builder().token(TOKEN).build()
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
 
-    bot.add_handler(CommandHandler("start", start))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+# 🧠 التشغيل
+def main():
+    if not TOKEN:
+        raise ValueError("❌ حط التوكن في Environment")
 
     keep_alive()
-    bot.run_polling()
+
+    app_bot = Application.builder().token(TOKEN).build()
+
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    print("✅ Bot started...")
+    app_bot.run_polling()
 
 if __name__ == "__main__":
     main()
